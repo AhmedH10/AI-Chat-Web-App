@@ -14,7 +14,7 @@ Follow these steps to run the app locally on StackBlitz:
 
 3. Run the following commands **in order**:
 
-4. Remove the spaces from the API key on the .env file.
+4. Remove the spaces from the API key on the .env file and seve it.
 
 ```bash
 cd server
