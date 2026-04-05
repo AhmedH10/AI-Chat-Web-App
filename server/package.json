@@ -8,7 +8,8 @@
     },
     "dependencies": {
         "@heyputer/puter.js": "^2.2.14",
+        "@huggingface/inference": "^4.13.15",
         "express": "^4.19.2",
-        "openai": "^4.0.0"
+        "openai": "^4.104.0"
     }
 }

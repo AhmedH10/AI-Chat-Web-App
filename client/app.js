@@ -1,4 +1,3 @@
-console.log("App loaded");
 const { useState, useEffect, useRef } = React;
 
 function App() {
@@ -6,16 +5,13 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
   const bottomRef = useRef(null);
 
-  useEffect(() => {
-    loadHistory();
-  }, []);
+  // Load chat history on mount
+  useEffect(() => { loadHistory(); }, []);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  // Scroll to bottom on new message
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
   async function loadHistory() {
     try {
@@ -33,26 +29,51 @@ function App() {
     setLoading(true);
     setError("");
 
+    const newMessage = { prompt, reply: "" };
+    setMessages(prev => [...prev, newMessage]);
+
     try {
-      const res = await fetch("/api/chat", {
+      const response = await fetch("/api/chat-stream", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ prompt })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
       });
 
-      if (!res.ok) throw new Error();
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
 
-      const data = await res.json();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
 
-      setMessages(prev => [...prev, data]);
-      setPrompt("");
-    } catch {
-      setError("Something went wrong");
-    } finally {
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n").filter(Boolean);
+
+        for (const line of lines) {
+          try {
+            const data = JSON.parse(line);
+            if (data.delta) {
+              accumulated += data.delta;
+              setMessages(prev =>
+                prev.map(m => (m === newMessage ? { ...m, reply: accumulated } : m))
+              );
+            }
+            if (data.done) {
+              setLoading(false);
+            }
+          } catch (err) {
+            console.error("JSON parse error:", err);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Streaming request failed");
       setLoading(false);
     }
+
+    setPrompt("");
   }
 
   async function clearHistory() {
@@ -60,63 +81,75 @@ function App() {
     setMessages([]);
   }
 
-  return (
-    React.createElement("div", { className: "min-h-screen flex flex-col items-center p-4" },
+  // Simple Markdown renderer for **bold**
+  function renderMarkdown(text) {
+    return text.split(/\*\*(.*?)\*\*/g).map((part, i) =>
+      i % 2 === 1 ? React.createElement("strong", { key: i }, part) : part
+    );
+  }
 
-      // Header
-      React.createElement("div", { className: "w-full max-w-2xl flex justify-between items-center mb-4" },
-        React.createElement("h1", { className: "text-2xl font-bold" }, "AI Chat"),
-        React.createElement("button", {
-          onClick: clearHistory,
-          className: "bg-red-500 text-white px-3 py-1 rounded"
-        }, "Clear")
-      ),
+  return React.createElement(
+    "div",
+    { className: "min-h-screen flex flex-col items-center p-4" },
 
-      // Chat box
-      React.createElement("div", {
-        className: "w-full max-w-2xl bg-white rounded shadow p-4 h-[60vh] overflow-y-auto"
-      },
+    // Header
+    React.createElement(
+      "div",
+      { className: "w-full max-w-2xl flex justify-between items-center mb-4" },
+      React.createElement("h1", { className: "text-2xl font-bold" }, "Ahmed's AI Chat"),
+      React.createElement(
+        "button",
+        { onClick: clearHistory, className: "bg-red-500 text-white px-3 py-1 rounded" },
+        "Clear"
+      )
+    ),
 
-        messages.map((m, i) =>
-          React.createElement("div", { key: i, className: "mb-4" },
-
-            React.createElement("div", {
-              className: "bg-gray-200 p-2 rounded mb-1"
-            }, m.prompt),
-
-            React.createElement("div", {
-              className: "bg-blue-100 p-2 rounded"
-            }, m.reply)
+    // Chat box
+    React.createElement(
+      "div",
+      { className: "w-full max-w-2xl bg-white rounded shadow p-4 h-[60vh] overflow-y-auto" },
+      messages.map((m, i) =>
+        React.createElement(
+          "div",
+          { key: i, className: "mb-4" },
+          React.createElement(
+            "div",
+            { className: "bg-gray-200 p-2 rounded mb-1" },
+            renderMarkdown(m.prompt)
+          ),
+          React.createElement(
+            "div",
+            { className: "bg-blue-100 p-2 rounded" },
+            renderMarkdown(m.reply)
           )
-        ),
-
-        loading && React.createElement("div", {
-          className: "text-gray-500 italic"
-        }, "Thinking..."),
-
-        React.createElement("div", { ref: bottomRef })
+        )
       ),
+      loading &&
+        React.createElement("div", { className: "text-gray-500 italic" }, "Thinking..."),
+      React.createElement("div", { ref: bottomRef })
+    ),
 
-      // Error
-      error && React.createElement("div", {
-        className: "text-red-500 mt-2"
-      }, error),
+    // Error message
+    error && React.createElement("div", { className: "text-red-500 mt-2" }, error),
 
-      // Input
-      React.createElement("div", { className: "w-full max-w-2xl mt-4" },
-
-        React.createElement("textarea", {
-          value: prompt,
-          onChange: e => setPrompt(e.target.value),
-          placeholder: "Type your prompt...",
-          className: "w-full border rounded p-2 mb-2"
-        }),
-
-        React.createElement("button", {
+    // Input area
+    React.createElement(
+      "div",
+      { className: "w-full max-w-2xl mt-4" },
+      React.createElement("textarea", {
+        value: prompt,
+        onChange: e => setPrompt(e.target.value),
+        placeholder: "Type your prompt...",
+        className: "w-full border rounded p-2 mb-2",
+      }),
+      React.createElement(
+        "button",
+        {
           onClick: sendPrompt,
           disabled: loading,
-          className: "bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50"
-        }, loading ? "Thinking..." : "Send")
+          className: "bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50",
+        },
+        loading ? "Thinking..." : "Send"
       )
     )
   );

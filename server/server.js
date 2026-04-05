@@ -6,63 +6,57 @@ import { fileURLToPath } from "url";
 const app = express();
 app.use(express.json());
 
-// Fix __dirname in ES modules
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-// Serve static frontend files
 app.use(express.static(path.join(__dirname, "../client")));
 
-// Initialize OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+const client = new OpenAI({
+  baseURL: "https://router.huggingface.co/v1",
+  apiKey: process.env.HF_TOKEN,
 });
 
-// In-memory chat history
 let history = [];
 
-// 🔹 Chat endpoint
-app.post("/api/chat", async (req, res) => {
+app.post("/api/chat-stream", async (req, res) => {
   const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Prompt required" });
 
-  if (!prompt) {
-    return res.status(400).json({ error: "Prompt required" });
-  }
+  res.setHeader("Content-Type", "application/json");
 
   try {
-    const response = await openai.responses.create({
-      model: "gpt-5-nano",
-      input: prompt,
+    const stream = await client.chat.completions.create({
+      model: "moonshotai/Kimi-K2-Thinking:fastest",
+      messages: [{ role: "user", content: prompt }],
+      stream: true,
     });
 
-    const reply = response.output_text || "No response";
+    let collected = "";
+    for await (const chunk of stream) {
+      const delta = chunk.choices?.[0]?.delta?.content;
+      if (delta) {
+        collected += delta;
+        // Send as partial JSON object per chunk
+        res.write(JSON.stringify({ delta }) + "\n");
+      }
+    }
 
-    const entry = { prompt, reply };
-    history.push(entry);
+    // Save final response to history
+    history.push({ prompt, reply: collected });
 
-    res.json(entry);
+    // Indicate end
+    res.write(JSON.stringify({ done: true }) + "\n");
+    res.end();
   } catch (err) {
-    console.error("OpenAI Error:", err);
-    res.status(500).json({ error: "OpenAI API error" });
+    console.error(err);
+    res.status(500).json({ error: "Streaming failed" });
   }
 });
 
-// 🔹 Get chat history
-app.get("/api/history", (req, res) => {
-  res.json(history);
-});
-
-// 🔹 Clear chat history
+app.get("/api/history", (req, res) => res.json(history));
 app.delete("/api/history", (req, res) => {
   history = [];
   res.json({ message: "History cleared" });
 });
 
-// 🔹 Serve frontend (main route)
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "../client/index.html"));
-});
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "../client/index.html")));
 
-// Start server
-app.listen(3000, () => {
-  console.log("Server running at http://localhost:3000");
-});
+app.listen(3000, () => console.log("Server running at http://localhost:3000"));
