@@ -14,6 +14,8 @@ Follow these steps to run the app locally on StackBlitz:
 
 3. Run the following commands **in order**:
 
+4. Replace .env.example to .env only.
+
 ```bash
 cd server
 npm install
